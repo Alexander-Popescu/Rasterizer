@@ -1,9 +1,9 @@
 #include "SDL.h"
 #include <random>
-// #include <GLFW/glfw3.h>
-// #include "imgui/imgui.h"
-// #include "imgui/imgui_impl_sdl2.h"
-// #include "imgui/imgui_impl_opengl3.h"
+#include <GLFW/glfw3.h>
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_sdl2.h"
+#include "imgui/imgui_impl_opengl3.h"
 //using the meson build system. Run "meson compile -C ../builddir" in the builddir
 
 #define START_SCREEN_WIDTH 1500
@@ -65,7 +65,20 @@ int main(int argc, char *argv[])
 
     //------End of SDL init stuff-------
 
-    //IMGUI later, dont feel like doing it yet
+    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
+    if (gl_context == NULL) {
+        printf("Could not create OpenGL context: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    const char* glsl_version = "#version 130";
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
+    ImGui_ImplOpenGL3_Init(glsl_version);
 
     //individual pixel editing setup
 
@@ -89,6 +102,10 @@ int main(int argc, char *argv[])
     bool single_frame = false;
     Uint32 frame_start = 0.0;
     Uint32 frame_time = 0.0;
+    int frameCount = 0;
+    float averageFPS = 0.0f;
+    bool show_demo_window = true;
+    Uint32 startTicks = SDL_GetTicks();
     while (running || isPaused) {
         if (single_frame) {
             isPaused = true;
@@ -98,6 +115,8 @@ int main(int argc, char *argv[])
         frame_start = SDL_GetTicks();
 
         while (SDL_PollEvent(&event)) {
+            //imgui inputs
+            ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) {
                 running = false;
                 isPaused = false;
@@ -132,10 +151,10 @@ int main(int argc, char *argv[])
                 if (event.key.keysym.sym == SDLK_p) {
                     isPaused = !isPaused;
                 }
-                if (event.key.keysym.sym == SDLK_EQUALS && event.key.keysym.mod & KMOD_SHIFT) {
-                    resolution_scale += 0.1;
-                    if (resolution_scale > 1.0) {
-                        resolution_scale = 1.0;
+                if (event.key.keysym.sym == SDLK_MINUS) {
+                    resolution_scale *= 1.1;
+                    if (resolution_scale > 2.0) {
+                        resolution_scale = 2.0;
                     }
                     SDL_FreeSurface(pixelSurface);
                     pixelSurface = SDL_CreateRGBSurface(0, windowWidth * resolution_scale, windowHeight * resolution_scale, 32, 0, 0, 0, 0);
@@ -145,10 +164,10 @@ int main(int argc, char *argv[])
                         isPaused = false;
                     }
                 }
-                if (event.key.keysym.sym == SDLK_MINUS) {
-                    resolution_scale -= 0.1;
-                    if (resolution_scale < 0.1) {
-                        resolution_scale = 0.1;
+                if (event.key.keysym.sym == SDLK_EQUALS && event.key.keysym.mod & KMOD_SHIFT) {
+                    resolution_scale *= 0.9;
+                    if (resolution_scale < 0.01) {
+                        resolution_scale = 0.01;
                     }
                     SDL_FreeSurface(pixelSurface);
                     pixelSurface = SDL_CreateRGBSurface(0, windowWidth * resolution_scale, windowHeight * resolution_scale, 32, 0, 0, 0, 0);
@@ -157,18 +176,20 @@ int main(int argc, char *argv[])
                         single_frame = true;
                         isPaused = false;
                     }
+                }
+                if (event.key.keysym.sym == SDLK_BACKQUOTE)
+                {
+                    show_demo_window = !show_demo_window;
                 }
             }
         }
 
-        //just skip iteration if paused
-        if (isPaused) {
-            continue;
-        }
-
         SDL_RenderClear(renderer);
         
-        RenderScene(pixelSurface);
+        if (!isPaused)
+        {
+            RenderScene(pixelSurface);
+        }
         
         SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, pixelSurface);
 
@@ -181,14 +202,47 @@ int main(int argc, char *argv[])
         SDL_DestroyTexture(texture);
 
         //limit to refresh rate
+        frameCount++;
         frame_time = SDL_GetTicks() - frame_start;
+
         if (frame_delay > frame_time)
         {
             SDL_Delay(frame_delay - frame_time);
         }
 
+        if (SDL_GetTicks() - startTicks >= 1000) // If one second has passed
+        {
+            averageFPS = frameCount; // The number of frames processed in the last second is the FPS
+            frameCount = 0;
+            startTicks = SDL_GetTicks();
+        }
+
+        if (show_demo_window)
+        {
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplSDL2_NewFrame(window);
+            ImGui::NewFrame();
+
+            ImGui::Begin("Debug Info");
+
+            ImGui::Text("This is some useful text.");
+            ImGui::Text("Paused State: %s", isPaused ? "true" : "false");
+
+            ImGui::Text("resolution_scale = %f", resolution_scale);
+
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / averageFPS, averageFPS);
+            ImGui::End();
+
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        }
+
         SDL_RenderPresent(renderer);
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext(ImGui::GetCurrentContext());
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
