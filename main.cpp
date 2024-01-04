@@ -6,10 +6,13 @@
 #include "imgui/imgui_impl_opengl3.h"
 #include "imgui/imgui_impl_glfw.h"
 
-//function that edits the pixel buffer that is the texture
-
-void update_texture(SDL_Texture* texture)
+void update_pixel_buffer(SDL_Texture* texture, bool pause)
 {
+    if (pause)
+    {
+        SDL_GL_BindTexture(texture, NULL, NULL);
+        return;
+    }
     int width, height;
     SDL_QueryTexture(texture, NULL, NULL, &width, &height);
 
@@ -66,7 +69,7 @@ int main(int, char**)
     int window_height = 720;
 
     //pixel buffer
-    SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
+    SDL_Texture* pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
 
 
     while(!done)
@@ -93,6 +96,12 @@ int main(int, char**)
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_l)
             {
+                if (lock_resolution)
+                {
+                    SDL_DestroyTexture(pixel_buffer);
+                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_height, window_width);
+                    update_pixel_buffer(pixel_buffer, false);
+                }
                 lock_resolution = !lock_resolution;
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_p)
@@ -104,21 +113,19 @@ int main(int, char**)
             {
                 if (!lock_resolution)
                 {
-                    SDL_DestroyTexture(texture);
-                    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, event.window.data1, event.window.data2);
+                    SDL_DestroyTexture(pixel_buffer);
+                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, event.window.data1, event.window.data2);
                     window_width = event.window.data1;
                     window_height = event.window.data2;
+                    update_pixel_buffer(pixel_buffer, false);
                 }
             }
         }
 
-        if (!pause)
-        {
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
 
-            update_texture(texture);
-        }
+        update_pixel_buffer(pixel_buffer, pause);
 
         if(show_debug_window) {
             // Start the Dear ImGui frame
@@ -143,7 +150,7 @@ int main(int, char**)
         SDL_GetWindowSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, NULL, NULL);
+        SDL_RenderCopy(renderer, pixel_buffer, NULL, NULL);
         SDL_GL_SwapWindow(window);
     }
     
