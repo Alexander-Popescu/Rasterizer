@@ -1,12 +1,11 @@
 #include "SDL.h"
-#include <random>
 #include <GLFW/glfw3.h>
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
-#include "imgui/imgui_impl_glfw.h"
 
-void update_pixel_buffer(SDL_Texture* texture, bool pause)
+
+void update_pixel_buffer(SDL_Texture* texture, bool pause, uint32_t *pixel_buffer_buffer)
 {
     if (pause)
     {
@@ -16,14 +15,13 @@ void update_pixel_buffer(SDL_Texture* texture, bool pause)
     int width, height;
     SDL_QueryTexture(texture, NULL, NULL, &width, &height);
 
-    uint32_t* pixels = new uint32_t[width * height];
-    for (int i = 0; i < width * height; i++)
+    for (int i = 0; i < 1000; i++)
     {
-        uint32_t rand = (uint32_t)std::rand();
-        pixels[i] = rand;
+        int x = std::rand() % width;
+        int y = std::rand() % height;
+        pixel_buffer_buffer[x + y * width] = (uint32_t)std::rand();
     }
-    SDL_UpdateTexture(texture, NULL, pixels, width * sizeof(uint32_t));
-    delete[] pixels;
+    SDL_UpdateTexture(texture, NULL, pixel_buffer_buffer, width * sizeof(uint32_t));
 }
 
 int main(int, char**)
@@ -71,6 +69,9 @@ int main(int, char**)
     //pixel buffer
     SDL_Texture* pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
 
+    //silly but avoids mallocating
+
+    uint32_t *pixel_buffer_buffer = new uint32_t[window_width * window_height];
 
     while(!done)
     {
@@ -99,8 +100,10 @@ int main(int, char**)
                 if (lock_resolution)
                 {
                     SDL_DestroyTexture(pixel_buffer);
-                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_height, window_width);
-                    update_pixel_buffer(pixel_buffer, false);
+                    SDL_GetWindowSize(window, &window_width, &window_height);
+                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
+                    pixel_buffer_buffer = new uint32_t[window_width * window_height];
+                    update_pixel_buffer(pixel_buffer, false, pixel_buffer_buffer);
                 }
                 lock_resolution = !lock_resolution;
             }
@@ -114,18 +117,43 @@ int main(int, char**)
                 if (!lock_resolution)
                 {
                     SDL_DestroyTexture(pixel_buffer);
-                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, event.window.data1, event.window.data2);
                     window_width = event.window.data1;
                     window_height = event.window.data2;
-                    update_pixel_buffer(pixel_buffer, false);
+                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
+                    pixel_buffer_buffer = new uint32_t[window_width * window_height];
+                    update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
                 }
+            }
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_MINUS)
+            {
+                //half resolution
+                int tex_width, tex_height;
+                SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
+                SDL_DestroyTexture(pixel_buffer);
+                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, tex_width / 2, tex_height / 2);
+                pixel_buffer_buffer = new uint32_t[(tex_width / 2) * (tex_height / 2)];
+                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                lock_resolution = true;
+            }
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_EQUALS)
+            {
+                //double resolution
+                int tex_width, tex_height;
+                SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
+                SDL_DestroyTexture(pixel_buffer);
+                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, tex_width * 2, tex_height * 2);
+                pixel_buffer_buffer = new uint32_t[(tex_width * 2) * (tex_height * 2)];
+                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                lock_resolution = true;
             }
         }
 
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        update_pixel_buffer(pixel_buffer, pause);
+        int start_time = SDL_GetTicks();
+        update_pixel_buffer(pixel_buffer, pause, pixel_buffer_buffer);
+        int frametime = (SDL_GetTicks() - start_time);
 
         if(show_debug_window) {
             // Start the Dear ImGui frame
@@ -136,8 +164,14 @@ int main(int, char**)
             ImGui::Begin("Hello, world!");
             ImGui::Text("Current Rendering State (Toggle P): %s", pause ? "Paused" : "Running"); 
             ImGui::Text("resolution (Toggle L): %s", lock_resolution ? "Locked" : "Unlocked");
+            ImGui::Text("hit L twice to render one frame");
             ImGui::Text("Window Resolution: %d x %d", window_width, window_height);
-            ImGui::Text("FPS: %f", ImGui::GetIO().Framerate);
+            int width, height;
+            SDL_QueryTexture(pixel_buffer, NULL, NULL, &width, &height);
+            ImGui::Text("Texture Resolution: %d x %d", width, height);
+            ImGui::Text("Frame Time: %ims", frametime);
+            ImGui::Text("Predicted FPS based on FrameTIme: %f", 1000.0f / frametime);
+            ImGui::Text("Actual FPS: %f", ImGui::GetIO().Framerate);
             ImGui::End();
 
             // Rendering
