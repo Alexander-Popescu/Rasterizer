@@ -5,6 +5,9 @@
 #include "imgui/imgui_impl_opengl3.h"
 
 
+#define DEFAULT_WIDTH 1280
+#define DEFAULT_HEIGHT 720
+
 void update_pixel_buffer(SDL_Texture* texture, bool pause, uint32_t *pixel_buffer_buffer)
 {
     if (pause)
@@ -63,8 +66,8 @@ int main(int, char**)
     bool pause = false;
 
     //store window resolution for quick access
-    int window_width = 1280;
-    int window_height = 720;
+    int window_width = DEFAULT_WIDTH;
+    int window_height = DEFAULT_HEIGHT;
 
     //pixel buffer
     SDL_Texture* pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
@@ -113,12 +116,14 @@ int main(int, char**)
             }
             //resize window event
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED)
-            {
+            {   
+                window_width = (event.window.data2 / 9) * 16;
+                window_height = event.window.data2;
+                SDL_SetWindowSize(window, window_width, window_height);
+
                 if (!lock_resolution)
                 {
                     SDL_DestroyTexture(pixel_buffer);
-                    window_width = event.window.data1;
-                    window_height = event.window.data2;
                     pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
                     pixel_buffer_buffer = new uint32_t[window_width * window_height];
                     update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
@@ -146,6 +151,17 @@ int main(int, char**)
                 update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
                 lock_resolution = true;
             }
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKSPACE)
+            {
+                SDL_DestroyTexture(pixel_buffer);
+                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+                pixel_buffer_buffer = new uint32_t[DEFAULT_WIDTH * DEFAULT_HEIGHT];
+                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                lock_resolution = true;
+                window_height = DEFAULT_HEIGHT;
+                window_width = DEFAULT_WIDTH;
+                SDL_SetWindowSize(window, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+            }
         }
 
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -166,9 +182,11 @@ int main(int, char**)
             ImGui::Text("resolution (Toggle L): %s", lock_resolution ? "Locked" : "Unlocked");
             ImGui::Text("hit L twice to render one frame");
             ImGui::Text("Window Resolution: %d x %d", window_width, window_height);
-            int width, height;
-            SDL_QueryTexture(pixel_buffer, NULL, NULL, &width, &height);
-            ImGui::Text("Texture Resolution: %d x %d", width, height);
+            int tex_width, tex_height;
+            SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
+            ImGui::Text("Texture Resolution: %d x %d", tex_width, tex_height);
+            ImGui::Text("Texture Aspect Ratio: %f", (float)tex_width / (float)tex_height);
+            ImGui::Text("Window Aspect Ratio: %f", (float)window_width / (float)window_height);
             ImGui::Text("Frame Time: %ims", frametime);
             ImGui::Text("Predicted FPS based on FrameTIme: %f", 1000.0f / frametime);
             ImGui::Text("Actual FPS: %f", ImGui::GetIO().Framerate);
