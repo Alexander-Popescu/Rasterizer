@@ -3,29 +3,12 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
+#include <vector>
+#include "PixelBuffer.h"
 
 
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
-
-void update_pixel_buffer(SDL_Texture* texture, bool pause, uint32_t *pixel_buffer_buffer)
-{
-    if (pause)
-    {
-        SDL_GL_BindTexture(texture, NULL, NULL);
-        return;
-    }
-    int width, height;
-    SDL_QueryTexture(texture, NULL, NULL, &width, &height);
-
-    for (int i = 0; i < 1000; i++)
-    {
-        int x = std::rand() % width;
-        int y = std::rand() % height;
-        pixel_buffer_buffer[x + y * width] = (uint32_t)std::rand();
-    }
-    SDL_UpdateTexture(texture, NULL, pixel_buffer_buffer, width * sizeof(uint32_t));
-}
 
 int main(int, char**)
 {
@@ -69,12 +52,12 @@ int main(int, char**)
     int window_width = DEFAULT_WIDTH;
     int window_height = DEFAULT_HEIGHT;
 
-    //pixel buffer
-    SDL_Texture* pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
+    //pixel buffer, really just a texture with some extra stuff
+    PixelBuffer* pixelBuffer = new PixelBuffer(renderer, DEFAULT_WIDTH, DEFAULT_HEIGHT);
 
-    //silly but avoids mallocating
-
-    uint32_t *pixel_buffer_buffer = new uint32_t[window_width * window_height];
+    //circular buffer for frametimes
+    std::vector<float> frametimes;
+    const int MAX_FRAMETIMES = 100;
 
     while(!done)
     {
@@ -102,11 +85,8 @@ int main(int, char**)
             {
                 if (lock_resolution)
                 {
-                    SDL_DestroyTexture(pixel_buffer);
                     SDL_GetWindowSize(window, &window_width, &window_height);
-                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
-                    pixel_buffer_buffer = new uint32_t[window_width * window_height];
-                    update_pixel_buffer(pixel_buffer, false, pixel_buffer_buffer);
+                    pixelBuffer->resize(window_width, window_height);
                 }
                 lock_resolution = !lock_resolution;
             }
@@ -123,40 +103,29 @@ int main(int, char**)
 
                 if (!lock_resolution)
                 {
-                    SDL_DestroyTexture(pixel_buffer);
-                    pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
-                    pixel_buffer_buffer = new uint32_t[window_width * window_height];
-                    update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                    pixelBuffer->resize(window_width, window_height);
                 }
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_MINUS)
             {
                 //half resolution
-                int tex_width, tex_height;
-                SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
-                SDL_DestroyTexture(pixel_buffer);
-                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, tex_width / 2, tex_height / 2);
-                pixel_buffer_buffer = new uint32_t[(tex_width / 2) * (tex_height / 2)];
-                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                std::vector<int> size = pixelBuffer->getSize();
+                pixelBuffer->resize(size[0] / 2, size[1] / 2);
+                pixelBuffer->update(true);
                 lock_resolution = true;
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_EQUALS)
             {
                 //double resolution
-                int tex_width, tex_height;
-                SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
-                SDL_DestroyTexture(pixel_buffer);
-                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, tex_width * 2, tex_height * 2);
-                pixel_buffer_buffer = new uint32_t[(tex_width * 2) * (tex_height * 2)];
-                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                std::vector<int> size = pixelBuffer->getSize();
+                pixelBuffer->resize(size[0] * 2, size[1] * 2);
+                pixelBuffer->update(true);
                 lock_resolution = true;
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKSPACE)
             {
-                SDL_DestroyTexture(pixel_buffer);
-                pixel_buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, DEFAULT_WIDTH, DEFAULT_HEIGHT);
-                pixel_buffer_buffer = new uint32_t[DEFAULT_WIDTH * DEFAULT_HEIGHT];
-                update_pixel_buffer(pixel_buffer, true, pixel_buffer_buffer);
+                //reset to default
+                pixelBuffer->resize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
                 lock_resolution = true;
                 window_height = DEFAULT_HEIGHT;
                 window_width = DEFAULT_WIDTH;
@@ -168,8 +137,14 @@ int main(int, char**)
         glClear(GL_COLOR_BUFFER_BIT);
 
         int start_time = SDL_GetTicks();
-        update_pixel_buffer(pixel_buffer, pause, pixel_buffer_buffer);
+        pixelBuffer->update(pause);
         int frametime = (SDL_GetTicks() - start_time);
+        frametimes.push_back(frametime);
+
+        //circulate frametime buffer
+        if (frametimes.size() > MAX_FRAMETIMES) {
+            frametimes.erase(frametimes.begin());
+        }
 
         if(show_debug_window) {
             // Start the Dear ImGui frame
@@ -177,19 +152,22 @@ int main(int, char**)
             ImGui_ImplSDL2_NewFrame(window);
             ImGui::NewFrame();
 
-            ImGui::Begin("Hello, world!");
+            ImGui::Begin("Debug Window");
+
             ImGui::Text("Current Rendering State (Toggle P): %s", pause ? "Paused" : "Running"); 
             ImGui::Text("resolution (Toggle L): %s", lock_resolution ? "Locked" : "Unlocked");
             ImGui::Text("hit L twice to render one frame");
             ImGui::Text("Window Resolution: %d x %d", window_width, window_height);
-            int tex_width, tex_height;
-            SDL_QueryTexture(pixel_buffer, NULL, NULL, &tex_width, &tex_height);
-            ImGui::Text("Texture Resolution: %d x %d", tex_width, tex_height);
-            ImGui::Text("Texture Aspect Ratio: %f", (float)tex_width / (float)tex_height);
+            std::vector<int> size = pixelBuffer->getSize();
+            ImGui::Text("Texture Resolution: %d x %d", size[0], size[1]);
+            ImGui::Text("Texture Aspect Ratio: %f", (float)size[0] / (float)size[1]);
             ImGui::Text("Window Aspect Ratio: %f", (float)window_width / (float)window_height);
-            ImGui::Text("Frame Time: %ims", frametime);
-            ImGui::Text("Predicted FPS based on FrameTIme: %f", 1000.0f / frametime);
+            ImGui::Text("Predicted FPS based on FrameTime: %f", 1000.0f / frametime);
             ImGui::Text("Actual FPS: %f", ImGui::GetIO().Framerate);
+            ImGui::Text("Frame Time: %ims", frametime);
+            ImGui::PlotLines("FrameTimes (ms)", &frametimes[0], frametimes.size(), 0, NULL, 0.0f, 100.0f, ImVec2(0, 80));
+            ImGui::Text("Graph is from 0 - 100 ms");
+            ImGui::Text("Press Space to hide this window");
             ImGui::End();
 
             // Rendering
@@ -202,11 +180,12 @@ int main(int, char**)
         SDL_GetWindowSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, pixel_buffer, NULL, NULL);
+        SDL_RenderCopy(renderer, pixelBuffer->getTexture(), NULL, NULL);
         SDL_GL_SwapWindow(window);
     }
     
     // Cleanup
+    delete pixelBuffer;
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();

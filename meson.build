@@ -9,4 +9,4 @@ imgui_src = files('imgui/imgui.cpp', 'imgui/imgui_draw.cpp', 'imgui/imgui_widget
 imgui_inc = include_directories('imgui')
 imgui_lib = static_library('imgui', imgui_src, include_directories : imgui_inc, dependencies : [sdl2_dep, gl_dep, glfw_dep])
 
-executable('Renderer', 'main.cpp', dependencies : [sdl2_dep, gl_dep, glfw_dep], link_with : imgui_lib)
+executable('Renderer', ['main.cpp', 'PixelBuffer.cpp'], dependencies : [sdl2_dep, gl_dep, glfw_dep], link_with : imgui_lib)
